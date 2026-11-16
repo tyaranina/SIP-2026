@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/L.Control.Locate.min.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title>PEMETAAN AKSESIBILITAS FASILITAS PENDIDIKAN SMAN DI KABUPATEN BREBES</title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/L.Control.Locate.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="data/ADMINISTRASI_AR_KECAMATAN_2.js"></script>
+        <script src="data/HALTE_3.js"></script>
+        <script src="data/SMA_4.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+
+            if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
+              highlightLayer.setStyle({
+                color: 'rgba(251, 154, 153, 1.00)',
+              });
+            } else {
+              highlightLayer.setStyle({
+                fillColor: 'rgba(251, 154, 153, 1.00)',
+                fillOpacity: 1
+              });
+            }
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[-7.359539557816406,108.4093124353488],[-6.753780133029874,109.61704528851695]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/qgis2web/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    var img = popup._contentNode.querySelector('td img');
+                    if (img) {
+                        // If already loaded (cache), update immediately
+                        if (img.complete && img.naturalHeight > 0) {
+                            popup.update();
+                        } else {
+                            img.addEventListener('load', function() {
+                                popup.update();
+                            });
+                            img.addEventListener('error', function() {
+                                popup.update();
+                            });
+                        }
+                    }
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var title = new L.Control({'position':'topright'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>PEMETAAN AKSESIBILITAS FASILITAS PENDIDIKAN SMAN DI KABUPATEN BREBES</h2>';
+        };
+        title.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        L.control.locate({locateOptions: {maxZoom: 19}}).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'feet',
+            secondaryLengthUnit: 'miles',
+            primaryAreaUnit: 'sqfeet',
+            secondaryAreaUnit: 'sqmiles'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_POSITRONnolabel_0');
+        map.getPane('pane_POSITRONnolabel_0').style.zIndex = 400;
+        var layer_POSITRONnolabel_0 = L.tileLayer('https://basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png?key=cb1_3usm_1_0d7e153a37374395c55bee13', {
+            pane: 'pane_POSITRONnolabel_0',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 18
+        });
+        layer_POSITRONnolabel_0;
+        map.addLayer(layer_POSITRONnolabel_0);
+        map.createPane('pane_ESRISatellite_1');
+        map.getPane('pane_ESRISatellite_1').style.zIndex = 401;
+        var layer_ESRISatellite_1 = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            pane: 'pane_ESRISatellite_1',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_ESRISatellite_1;
+        map.addLayer(layer_ESRISatellite_1);
+        function pop_ADMINISTRASI_AR_KECAMATAN_2(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2"><strong>Nama Objek</strong><br />' + (feature.properties['NAMOBJ'] !== null ? autolinker.link(String(feature.properties['NAMOBJ']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Nama wilayah administrasi Kecamatan atau Distrik</th>\
+                        <td>' + (feature.properties['WADMKC'] !== null ? autolinker.link(String(feature.properties['WADMKC']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['KEPADATAN'] !== null ? autolinker.link(String(feature.properties['KEPADATAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_ADMINISTRASI_AR_KECAMATAN_2_0() {
+            return {
+                pane: 'pane_ADMINISTRASI_AR_KECAMATAN_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(230,205,19,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_ADMINISTRASI_AR_KECAMATAN_2');
+        map.getPane('pane_ADMINISTRASI_AR_KECAMATAN_2').style.zIndex = 402;
+        map.getPane('pane_ADMINISTRASI_AR_KECAMATAN_2').style['mix-blend-mode'] = 'normal';
+        var layer_ADMINISTRASI_AR_KECAMATAN_2 = new L.geoJson(json_ADMINISTRASI_AR_KECAMATAN_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_ADMINISTRASI_AR_KECAMATAN_2',
+            layerName: 'layer_ADMINISTRASI_AR_KECAMATAN_2',
+            pane: 'pane_ADMINISTRASI_AR_KECAMATAN_2',
+            onEachFeature: pop_ADMINISTRASI_AR_KECAMATAN_2,
+            style: style_ADMINISTRASI_AR_KECAMATAN_2_0,
+        });
+        bounds_group.addLayer(layer_ADMINISTRASI_AR_KECAMATAN_2);
+        map.addLayer(layer_ADMINISTRASI_AR_KECAMATAN_2);
+        function pop_HALTE_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['nama'] !== null ? autolinker.link(String(feature.properties['nama']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['deskripsi'] !== null ? autolinker.link(String(feature.properties['deskripsi']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Foto Halte'] !== null ? '<img src="images/' + String(feature.properties['Foto Halte']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_HALTE_3_0(feature) {
+            switch(String(feature.properties['nama'])) {
+                case 'HALTE DAEHAN':
+                    return {
+                pane: 'pane_HALTE_3',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/HALTE_3.svg',
+            iconSize: [19.0, 19.0]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'Halte Jl. A Yani Brebes':
+                    return {
+                pane: 'pane_HALTE_3',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/HALTE_3.svg',
+            iconSize: [19.0, 19.0]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'Halte SMPN 1 BANTARKAWUNG':
+                    return {
+                pane: 'pane_HALTE_3',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/HALTE_3.svg',
+            iconSize: [19.0, 19.0]
+        }),
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_HALTE_3');
+        map.getPane('pane_HALTE_3').style.zIndex = 403;
+        map.getPane('pane_HALTE_3').style['mix-blend-mode'] = 'normal';
+        var layer_HALTE_3 = new L.geoJson(json_HALTE_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_HALTE_3',
+            layerName: 'layer_HALTE_3',
+            pane: 'pane_HALTE_3',
+            onEachFeature: pop_HALTE_3,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.marker(latlng, style_HALTE_3_0(feature));
+            },
+        });
+        bounds_group.addLayer(layer_HALTE_3);
+        map.addLayer(layer_HALTE_3);
+        function pop_SMA_4(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['nama'] !== null ? autolinker.link(String(feature.properties['nama']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['deskripsi'] !== null ? autolinker.link(String(feature.properties['deskripsi']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Photo'] !== null ? '<img src="images/' + String(feature.properties['Photo']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_SMA_4_0(feature) {
+            switch(String(feature.properties['nama'])) {
+                case 'SMA Negeri 1 Banjarharjo':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Bantarkawung':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Brebes':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Bulakamba':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Bumiayu':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Jatibarang':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Kersana':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Ketanggungan':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Losari':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Paguyangan':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Salem':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Sirampog':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 1 Wanasari school':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 2 Brebes':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMA Negeri 3 Brebes':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                case 'SMAN 1 Tanjung Brebes':
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+                default:
+                    return {
+                pane: 'pane_SMA_4',
+        rotationAngle: 0.0,
+        rotationOrigin: 'center center',
+        icon: L.icon({
+            iconUrl: 'markers/SMA_4.svg',
+            iconSize: [34.199999999999996, 34.199999999999996]
+        }),
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_SMA_4');
+        map.getPane('pane_SMA_4').style.zIndex = 404;
+        map.getPane('pane_SMA_4').style['mix-blend-mode'] = 'normal';
+        var layer_SMA_4 = new L.geoJson(json_SMA_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_SMA_4',
+            layerName: 'layer_SMA_4',
+            pane: 'pane_SMA_4',
+            onEachFeature: pop_SMA_4,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.marker(latlng, style_SMA_4_0(feature));
+            },
+        });
+        bounds_group.addLayer(layer_SMA_4);
+        map.addLayer(layer_SMA_4);
+        const url = {"Nominatim OSM": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
+        "France BAN": "https://api-adresse.data.gouv.fr/search/?"}
+        var photonControl = L.control.photon({
+            url: url["Nominatim OSM"],
+            feedbackLabel: '',
+            position: 'topleft',
+            includePosition: true,
+            initial: true,
+            // resultsHandler: myHandler,
+        }).addTo(map);
+        photonControl._container.childNodes[0].style.borderRadius="10px"
+        // Create a variable to store the geoJSON data
+        var x = null;
+        // Create a variable to store the marker
+        var marker = null;
+        // Add an event listener to the Photon control to create a marker from the returned geoJSON data
+        var z = null;
+        photonControl.on('selected', function(e) {
+            console.log(photonControl.search.resultsContainer);
+            if (x != null) {
+                map.removeLayer(obj3.marker);
+                map.removeLayer(x);
+            }
+            obj2.gcd = e.choice;
+            x = L.geoJSON(obj2.gcd).addTo(map);
+            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
+            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
+            map.setView(x.getLayers()[0].getLatLng(), 17);
+            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
+            console.log(e);
+            e.target.input.value = z;
+        });
+        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
+        search.classList.add("leaflet-control-search")
+        search.style.display = "flex";
+        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+
+        // Create the new button element
+        var button = document.createElement("div");
+        button.id = "gcd-button-control";
+        button.className = "gcd-gl-btn fa fa-search search-button";
+
+        // Insert the button at the beginning of the search control
+        search.insertBefore(button, search.firstChild);
+        last = search.lastChild;
+        last.style.display = "none";
+        button.addEventListener("click", function (e) {
+            if (last.style.display === "none") {
+                last.style.display = "block";
+            } else {
+                last.style.display = "none";
+            }
+        });
+        var overlaysTree = [
+            {label: 'SMA<br /><table><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Banjarharjo0.png" /></td><td>SMA Negeri 1 Banjarharjo</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Bantarkawung1.png" /></td><td>SMA Negeri 1 Bantarkawung</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Brebes2.png" /></td><td>SMA Negeri 1 Brebes</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Bulakamba3.png" /></td><td>SMA Negeri 1 Bulakamba</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Bumiayu4.png" /></td><td>SMA Negeri 1 Bumiayu</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Jatibarang5.png" /></td><td>SMA Negeri 1 Jatibarang</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Kersana6.png" /></td><td>SMA Negeri 1 Kersana</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Ketanggungan7.png" /></td><td>SMA Negeri 1 Ketanggungan</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Losari8.png" /></td><td>SMA Negeri 1 Losari</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Paguyangan9.png" /></td><td>SMA Negeri 1 Paguyangan</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Salem10.png" /></td><td>SMA Negeri 1 Salem</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Sirampog11.png" /></td><td>SMA Negeri 1 Sirampog</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri1Wanasarischool12.png" /></td><td>SMA Negeri 1 Wanasari school</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri2Brebes13.png" /></td><td>SMA Negeri 2 Brebes</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMANegeri3Brebes14.png" /></td><td>SMA Negeri 3 Brebes</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_SMAN1TanjungBrebes15.png" /></td><td>SMAN 1 Tanjung Brebes</td></tr><tr><td style="text-align: center;"><img src="legend/SMA_4_16.png" /></td><td></td></tr></table>', layer: layer_SMA_4},
+            {label: 'HALTE<br /><table><tr><td style="text-align: center;"><img src="legend/HALTE_3_HALTEDAEHAN0.png" /></td><td>HALTE DAEHAN</td></tr><tr><td style="text-align: center;"><img src="legend/HALTE_3_HalteJlAYaniBrebes1.png" /></td><td>Halte Jl. A Yani Brebes</td></tr><tr><td style="text-align: center;"><img src="legend/HALTE_3_HalteSMPN1BANTARKAWUNG2.png" /></td><td>Halte SMPN 1 BANTARKAWUNG</td></tr></table>', layer: layer_HALTE_3},
+            {label: '<img src="legend/ADMINISTRASI_AR_KECAMATAN_2.png" /> ADMINISTRASI_AR_KECAMATAN', layer: layer_ADMINISTRASI_AR_KECAMATAN_2},
+            {label: "ESRI Satellite", layer: layer_ESRISatellite_1, radioGroup: 'bm' },
+            {label: "POSITRON no label", layer: layer_POSITRONnolabel_0},]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        var i = 0;
+        layer_ADMINISTRASI_AR_KECAMATAN_2.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['NAMOBJ'] !== null?String('<div style="color: #323232; font-size: 10pt; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['NAMOBJ']).replace(/\\n/g, '<br>') + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_ADMINISTRASI_AR_KECAMATAN_2'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        resetLabels([layer_ADMINISTRASI_AR_KECAMATAN_2]);
+        map.on("zoomend", function(){
+            resetLabels([layer_ADMINISTRASI_AR_KECAMATAN_2]);
+        });
+        map.on("layeradd", function(){
+            resetLabels([layer_ADMINISTRASI_AR_KECAMATAN_2]);
+        });
+        map.on("layerremove", function(){
+            resetLabels([layer_ADMINISTRASI_AR_KECAMATAN_2]);
+        });
+        </script>        
+    </body>
+</html>
